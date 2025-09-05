@@ -9,7 +9,7 @@ using CSV
 summary_raw = build_us_table(:summary)
 summary, _ = calibrate(summary_raw)
 
-data_dir = "blog/009_disaggregate_state/data_compare/data"
+data_dir = "data"
 
 
 
@@ -82,17 +82,96 @@ df = outerjoin(
 ) |>
 x -> transform(x, [:value,:labor] => ByRow((+)) => :diff)
 
+
+
+# Small differences
 df |>
     x -> dropmissing(x, :diff) |>
     x -> subset(x, :diff => ByRow(y-> abs(y) < 1)) |>
     x -> unique(x, :col)
 
 
+# Large differences
+df |>
+    x -> dropmissing(x, :diff) |>
+    x -> subset(x, :diff => ByRow(y-> abs(y) >= 1))  |>
+    x -> sort(x, :diff)
 
-table(summary, :Labor_Demand) |>
-    x -> groupby(x, :year) |>
-    x -> combine(x, :value => sum => :total)
 
-labor |>
-    x -> groupby(x, :year) |>
-    x -> combine(x, :value => sum => :total)
+# Missing industries
+df |>
+  x -> subset(x, :diff => ByRow(ismissing)) |>
+  x -> unique(x, :col)
+
+
+
+### Disaggregation
+
+# Small Differenecs
+
+step_1 = df |>
+    x -> dropmissing(x, :diff) |>
+    x -> subset(x, :diff => ByRow(y-> abs(y) < 1)) |>
+    x -> select(x, :col, :year) |>
+    x -> innerjoin(
+      labor,
+      x,
+      on = [:naics => :col, :year]
+   ) |>
+   x -> transform(x, 
+    :year => ByRow(y -> [:labor, :labor_demand]) => [:row, :parameter],
+    :value => ByRow((-)) => :value,
+  ) |>
+   x -> select(x, :row, :naics => :col, :state, :year, :parameter, :value)
+
+
+# Large Differences or Missing Industries
+missing_categories = df |>
+  x -> subset(x, :diff => ByRow(ismissing)) |>
+  x -> unique(x, [:col, :year]) |>
+  x -> select(x, :col, :year) |>
+  x -> crossjoin(x, state_fips[!,[:state]]) |> # Add in the states
+  x -> transform(x, :col => ByRow(y -> 1) => :labor)
+
+big_differences = df |>
+  x -> dropmissing(x,:diff) |>
+  x -> subset(x, :diff => ByRow(y -> abs(y) >=1)) |>
+  x -> select(x, :col, :year) |>
+  x -> innerjoin(
+    x,
+    labor,
+    on = [:col => :naics, :year]
+  ) |>
+  x -> rename(x, :value => :labor)
+
+
+step_2_3 = vcat(missing_categories, big_differences) |>
+  x -> innerjoin(
+    table(summary, :Labor_Demand),
+    x,
+    on = [:col, :year]
+  ) |>
+  x -> groupby(x, [:col, :year]) |>
+  x -> combine(x,
+    :state => identity => :state,
+    [:value, :labor] => ((v,l) -> v .* (l ./ sum(l))) => :value,
+  ) |>
+  x -> transform(x, :year => ByRow(y -> [:labor, :labor_demand]) => [:row, :parameter])
+
+
+# Combination
+
+X = vcat(step_1, step_2_3)
+
+
+### Checking our Work
+X |>
+  x -> groupby(x, [:year, :col]) |>
+  x -> combine(x, :value => sum => :labor) |>
+  x -> outerjoin(
+    table(summary, :Labor_Demand),
+    x,
+    on = [:year, :col]
+  ) |>
+  x -> transform(x, [:value, :labor] => ByRow((-)) => :diff) |>
+  x -> sort(x, :diff)
