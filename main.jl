@@ -10,6 +10,7 @@ summary_raw = build_us_table(:summary)
 summary, _ = calibrate(summary_raw)
 
 data_dir = "data"
+
 state_fips = CSV.read(
     joinpath(data_dir,"state_fips.csv"), 
     DataFrame,
