@@ -9,10 +9,7 @@ using CSV
 summary_raw = build_us_table(:summary)
 summary, _ = calibrate(summary_raw)
 
-data_dir = "blog/009_disaggregate_state/data_compare/data"
-
-
-
+data_dir = "data"
 
 state_fips = CSV.read(
     joinpath(data_dir,"state_fips.csv"), 
@@ -23,8 +20,6 @@ state_fips = CSV.read(
         ),
     select = [:fips, :state]
     )
-
-
 
 industry_codes = CSV.read(
     joinpath(data_dir,"industry_codes.csv"), 
